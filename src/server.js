@@ -72,19 +72,7 @@ async function processVisit(req, trackingLink) {
 
   const guildId = trackingLink.campaign.guildId;
 
-  // Check if visitor is a Discord server member
-  let isServerMember = false;
   try {
-    const guild = await discordClient.guilds.fetch(guildId);
-    const members = await guild.members.fetch();
-    // We can't know who the visitor is from HTTP alone.
-    // We flag a visit as "server member" only if the link owner themselves is clicking
-    // (same IP wouldn't help here). The real check: if the visit comes from a Discord
-    // preview bot / embed fetcher, we ignore it. Otherwise we can only infer "not a member"
-    // for external visits. The authoritative approach:
-    // - We cannot identify HTTP visitors as Discord members without auth
-    // - Therefore any non-bot click is treated as external UNLESS it comes from
-    //   the link owner checking their own link via /my-link command (handled separately)
     // Discord embed prefetch user-agents are ignored
     if (isDiscordBotUserAgent(userAgent)) {
       // Discord is just generating a preview embed — don't count this at all

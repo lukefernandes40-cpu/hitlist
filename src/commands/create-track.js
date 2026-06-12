@@ -25,7 +25,13 @@ module.exports = {
 
   async execute(interaction) {
     const trustedRoleId = process.env.TRUSTED_ROLE_ID;
-    const hasTrustedRole = trustedRoleId && interaction.member.roles.cache.has(trustedRoleId);
+
+    let member = interaction.member;
+    if (!member) {
+      member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    }
+
+    const hasTrustedRole = trustedRoleId && member && member.roles.cache.has(trustedRoleId);
 
     if (!hasTrustedRole) {
       return interaction.reply({
