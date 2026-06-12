@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Campaign {
+  id           String   @id @default(cuid())
+  name         String?
+  originalUrl  String
+  createdBy    String   // Discord user ID
+  guildId      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  trackingLinks TrackingLink[]
+  reportMessageId String?   // DM message ID for the persistent embed
+  reportChannelId String?   // DM channel ID
+
+  @@map("campaigns")
+}
+
+model TrackingLink {
+  id          String   @id @default(cuid())
+  token       String   @unique  // short token like A1B2
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  discordUserId   String  // the member this link belongs to
+  discordUsername String  // cached username for display
+
+  externalClicks  Int      @default(0)
+  totalClicks     Int      @default(0)
+  firstLeakAt     DateTime?
+  lastLeakAt      DateTime?
+
+  visits Visit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@index([campaignId])
+  @@map("tracking_links")
+}
+
+model Visit {
+  id             String   @id @default(cuid())
+  trackingLinkId String
+  trackingLink   TrackingLink @relation(fields: [trackingLinkId], references: [id], onDelete: Cascade)
+  
+  ipHash         String?  // hashed IP for unique visitor counting
+  userAgent      String?
+  isServerMember Boolean  @default(false)
+  visitedAt      DateTime @default(now())
+
+  @@index([trackingLinkId])
+  @@map("visits")
+}

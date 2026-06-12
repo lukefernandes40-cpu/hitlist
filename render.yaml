@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: spy-catcher
+    runtime: node
+    buildCommand: npm install && npx prisma generate && npx prisma db push
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: ADMIN_USER_ID
+        sync: false
+      - key: RENDER_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
