@@ -9,7 +9,7 @@ const { updateAdminEmbed } = require('../reporter');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('create-track')
-    .setDescription('Create a new spy-catcher tracking campaign for a URL')
+    .setDescription('Create a new spy-catcher tracking campaign and post a reaction announcement')
     .addStringOption(opt =>
       opt
         .setName('url')
@@ -18,8 +18,20 @@ module.exports = {
     )
     .addStringOption(opt =>
       opt
+        .setName('message')
+        .setDescription('The announcement text shown to members')
+        .setRequired(true)
+    )
+    .addStringOption(opt =>
+      opt
         .setName('name')
-        .setDescription('Optional campaign name')
+        .setDescription('Optional campaign name (internal only, not shown publicly)')
+        .setRequired(false)
+    )
+    .addStringOption(opt =>
+      opt
+        .setName('emoji')
+        .setDescription('Emoji members react with to get their link (default: 🔗)')
         .setRequired(false)
     ),
 
@@ -43,7 +55,9 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     const rawUrl = interaction.options.getString('url');
+    const announceText = interaction.options.getString('message');
     const campaignName = interaction.options.getString('name') || null;
+    const emoji = interaction.options.getString('emoji') || '🔗';
     const guildId = interaction.guildId;
     const renderUrl = process.env.RENDER_URL?.replace(/\/$/, '');
 
@@ -60,7 +74,7 @@ module.exports = {
     }
 
     // Fetch all members in the guild
-    await interaction.editReply('⏳ Fetching guild members and generating tracking links...');
+    await interaction.editReply('⏳ Fetching guild members and preparing tracking links...');
 
     let guild;
     try {
@@ -84,58 +98,46 @@ module.exports = {
         name: campaignName,
         createdBy: interaction.user.id,
         guildId,
+        emoji,
       },
     });
 
-    // Generate a unique tracking link for every member
-    const created = [];
-    for (const [, member] of members) {
+    // Pre-generate a unique tracking link for every member (not yet sent)
+    let createdCount = 0;
+    for (const [, m] of members) {
       const token = await generateUniqueToken(prisma);
-      const link = await prisma.trackingLink.create({
+      await prisma.trackingLink.create({
         data: {
           token,
           campaignId: campaign.id,
-          discordUserId: member.user.id,
-          discordUsername: member.user.tag || member.user.username,
+          discordUserId: m.user.id,
+          discordUsername: m.user.tag || m.user.username,
+          sent: false,
         },
       });
-      created.push({ member, link, token });
+      createdCount++;
     }
 
     // Send initial admin embed
     await updateAdminEmbed(interaction.client, campaign.id);
 
-    // DM each member their personalized link
-    let dmSuccess = 0;
-    let dmFailed = 0;
+    // Post the announcement message
+    const announceEmbed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setDescription(announceText)
+      .setFooter({ text: `React with ${emoji} to get your link` });
 
-    for (const { member, token } of created) {
-      const personalLink = `${renderUrl}/t/${token}`;
-      const dmEmbed = new EmbedBuilder()
-        .setTitle('🔗 Your Personalized Link')
-        .setColor(0x5865f2)
-        .setDescription(
-          `A new tracking campaign has been created in **${guild.name}**.\n\n` +
-          `Here is your unique link for this campaign. **Share only this link** — do not share others' links.\n\n` +
-          `**Your Link:**\n\`\`\`\n${personalLink}\n\`\`\``
-        )
-        .addFields(
-          { name: 'Destination', value: `\`${validatedUrl.slice(0, 100)}\``, inline: false },
-          { name: 'Campaign', value: campaignName || `\`${campaign.id}\``, inline: true },
-        )
-        .setFooter({ text: 'This link redirects to the original URL. Only you should share this link.' })
-        .setTimestamp();
+    const announceMsg = await interaction.channel.send({ embeds: [announceEmbed] });
+    await announceMsg.react(emoji);
 
-      try {
-        await member.send({ embeds: [dmEmbed] });
-        dmSuccess++;
-      } catch {
-        dmFailed++;
-      }
-
-      // Small delay to avoid rate limits
-      await sleep(350);
-    }
+    // Store announcement message info
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        announceMessageId: announceMsg.id,
+        announceChannelId: announceMsg.channelId,
+      },
+    });
 
     // Summary reply
     const summaryEmbed = new EmbedBuilder()
@@ -144,21 +146,16 @@ module.exports = {
       .addFields(
         { name: 'Campaign ID', value: `\`${campaign.id}\``, inline: true },
         { name: 'Original URL', value: `\`${validatedUrl.slice(0, 80)}\``, inline: false },
-        { name: 'Members Tracked', value: `${created.length}`, inline: true },
-        { name: 'DMs Sent', value: `${dmSuccess}`, inline: true },
-        { name: 'DMs Failed', value: `${dmFailed}`, inline: true },
+        { name: 'Members Prepared', value: `${createdCount}`, inline: true },
+        { name: 'Reaction Emoji', value: emoji, inline: true },
       )
       .setDescription(
-        '📬 Each member has been DM\'d their unique link.\n' +
-        '📊 The admin report embed has been sent/updated via DM.\n' +
-        `🔗 Use \`/my-link\` to retrieve your personal link for this campaign.`
+        '📢 Announcement posted with reaction.\n' +
+        '🔗 Members who react will be DM\'d their unique link silently.\n' +
+        '📊 The admin report embed has been sent/updated via DM.'
       )
       .setTimestamp();
 
     await interaction.editReply({ content: '', embeds: [summaryEmbed] });
   },
 };
-
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}

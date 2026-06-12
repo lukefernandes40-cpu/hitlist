@@ -23,6 +23,10 @@ model Campaign {
   reportMessageId String?   // DM message ID for the persistent embed
   reportChannelId String?   // DM channel ID
 
+  announceMessageId String?  // Message ID of the announcement with the reaction
+  announceChannelId String?  // Channel ID where the announcement was posted
+  emoji              String?  // Emoji used for reacting to get the link
+
   @@map("campaigns")
 }
 
@@ -39,6 +43,7 @@ model TrackingLink {
   totalClicks     Int      @default(0)
   firstLeakAt     DateTime?
   lastLeakAt      DateTime?
+  sent            Boolean  @default(false) // whether the link has been DM'd to the member
 
   visits Visit[]
 
