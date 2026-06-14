@@ -103,34 +103,34 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
     // Ensure partials are fully fetched
     if (reaction.partial) {
-      await reaction.fetch().catch(() => null);
+      await reaction.fetch().catch(err => console.error('[Reactions] Failed to fetch reaction:', err.message));
     }
     if (reaction.message.partial) {
-      await reaction.message.fetch().catch(() => null);
+      await reaction.message.fetch().catch(err => console.error('[Reactions] Failed to fetch message:', err.message));
     }
 
     const prisma = require('./db');
 
-    // Find a campaign matching this announcement message + emoji
-    const emojiKey = reaction.emoji.id
-      ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
-      : reaction.emoji.name;
-
+    // Find a campaign matching this announcement message
     const campaign = await prisma.campaign.findFirst({
       where: {
         announceMessageId: reaction.message.id,
       },
     });
 
-    if (!campaign) return;
+    if (!campaign) {
+      console.log(`[Reactions] No campaign found for message ${reaction.message.id}`);
+      return;
+    }
 
-    // Check emoji matches
+    // Check emoji matches (handles both unicode and custom emoji)
     const campaignEmoji = campaign.emoji || '🔗';
     const reactionEmoji = reaction.emoji.id
-      ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
-      : reaction.emoji.name;
+      ? reaction.emoji.name  // custom emoji - compare by name
+      : reaction.emoji.name; // unicode emoji
 
-    if (campaignEmoji !== reactionEmoji && campaignEmoji !== reaction.emoji.name) {
+    if (campaignEmoji.replace(/[<>:0-9]/g, '') !== reactionEmoji && campaignEmoji !== reaction.emoji.toString()) {
+      console.log(`[Reactions] Emoji mismatch: expected ${campaignEmoji}, got ${reaction.emoji.toString()}`);
       return;
     }
 
@@ -142,21 +142,29 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
       },
     });
 
-    if (!link) return; // user wasn't a member when campaign was created
+    if (!link) {
+      console.log(`[Reactions] No tracking link found for user ${user.id} in campaign ${campaign.id}`);
+      return; // user wasn't a member when campaign was created
+    }
 
-    if (link.sent) return; // already sent, don't spam
+    if (link.sent) {
+      console.log(`[Reactions] Link already sent to ${user.tag}, skipping`);
+      return; // already sent, don't spam
+    }
 
     const renderUrl = process.env.RENDER_URL?.replace(/\/$/, '');
     const personalLink = `${renderUrl}/t/${link.token}`;
 
     try {
-      await user.send(personalLink);
+      const dmChannel = await user.createDM();
+      await dmChannel.send(personalLink);
       await prisma.trackingLink.update({
         where: { id: link.id },
         data: { sent: true },
       });
+      console.log(`[Reactions] Sent link to ${user.tag}`);
     } catch (err) {
-      console.warn(`[Reactions] Could not DM ${user.tag}:`, err.message);
+      console.warn(`[Reactions] Could not DM ${user.tag}: ${err.message} (code: ${err.code})`);
     }
   } catch (err) {
     console.error('[Reactions] Error handling reaction:', err);
